@@ -1,29 +1,128 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Button } from "../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { Badge } from "../components/ui/badge";
 import { CheckCircle, Star, QrCode, Download } from "lucide-react";
-import { mockData } from "../utils/mock";
+import { useAuth } from "../contexts/AuthContext";
+import { membershipAPI } from "../services/api";
 import { useToast } from "../hooks/use-toast";
 
 const MembershipPage = () => {
   const [selectedPlan, setSelectedPlan] = useState(null);
+  const [membershipPlans, setMembershipPlans] = useState([]);
+  const [membershipStats, setMembershipStats] = useState(null);
+  const [membershipCard, setMembershipCard] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const { user, isAuthenticated } = useAuth();
   const { toast } = useToast();
 
-  const handlePlanSelect = (plan) => {
-    setSelectedPlan(plan);
-    toast({
-      title: "Plan Selected",
-      description: `You've selected the ${plan.name} plan. Proceeding to registration...`,
-    });
+  // Fetch membership data
+  useEffect(() => {
+    const fetchMembershipData = async () => {
+      try {
+        setLoading(true);
+        const [plansResponse, statsResponse] = await Promise.all([
+          membershipAPI.getPlans(),
+          membershipAPI.getStats()
+        ]);
+        
+        setMembershipPlans(plansResponse.data);
+        setMembershipStats(statsResponse.data);
+
+        // Fetch user's membership card if authenticated
+        if (isAuthenticated) {
+          try {
+            const cardResponse = await membershipAPI.getMyCard();
+            setMembershipCard(cardResponse.data);
+          } catch (error) {
+            console.error('Failed to fetch membership card:', error);
+          }
+        }
+      } catch (error) {
+        console.error('Failed to fetch membership data:', error);
+        toast({
+          title: "Error loading membership data",
+          description: "Failed to load membership information. Please try again.",
+          variant: "destructive",
+        });
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchMembershipData();
+  }, [isAuthenticated, toast]);
+
+  const handlePlanSelect = async (plan) => {
+    if (!isAuthenticated) {
+      toast({
+        title: "Authentication Required",
+        description: "Please sign in to select a membership plan.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      setSelectedPlan(plan);
+      const response = await membershipAPI.subscribeToPlan({ planId: plan.id });
+      
+      toast({
+        title: "Plan Selected",
+        description: response.data.message,
+      });
+
+      // Refresh membership card
+      const cardResponse = await membershipAPI.getMyCard();
+      setMembershipCard(cardResponse.data);
+    } catch (error) {
+      toast({
+        title: "Subscription Failed",
+        description: error.response?.data?.detail || "Failed to subscribe to plan.",
+        variant: "destructive",
+      });
+    }
   };
 
-  const handleDownloadCard = () => {
-    toast({
-      title: "Card Downloaded",
-      description: "Your digital membership card has been downloaded to your device.",
-    });
+  const handleDownloadCard = async () => {
+    if (!isAuthenticated) {
+      toast({
+        title: "Authentication Required",
+        description: "Please sign in to download your membership card.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      const response = await membershipAPI.generateNewCard();
+      toast({
+        title: "Card Downloaded",
+        description: response.data.message,
+      });
+      
+      // Refresh membership card
+      const cardResponse = await membershipAPI.getMyCard();
+      setMembershipCard(cardResponse.data);
+    } catch (error) {
+      toast({
+        title: "Download Failed",
+        description: "Failed to generate new membership card.",
+        variant: "destructive",
+      });
+    }
   };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-red-500 mx-auto"></div>
+          <p className="mt-4 text-gray-600">Loading membership data...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 py-16">
@@ -40,62 +139,70 @@ const MembershipPage = () => {
         </div>
 
         {/* Current Membership Display */}
-        <div className="mb-16">
-          <h2 className="text-3xl font-bold text-gray-900 mb-8 text-center">Your Current Membership</h2>
-          <div className="max-w-md mx-auto">
-            <Card className="bg-gradient-to-br from-red-500 to-orange-600 text-white border-0 shadow-2xl">
-              <CardContent className="p-8">
-                <div className="flex items-center justify-between mb-6">
-                  <div>
-                    <h3 className="text-2xl font-bold">{mockData.user.membershipType} Member</h3>
-                    <p className="text-white/80">ID: {mockData.user.memberId}</p>
+        {isAuthenticated && membershipCard && (
+          <div className="mb-16">
+            <h2 className="text-3xl font-bold text-gray-900 mb-8 text-center">Your Current Membership</h2>
+            <div className="max-w-md mx-auto">
+              <Card className="bg-gradient-to-br from-red-500 to-orange-600 text-white border-0 shadow-2xl">
+                <CardContent className="p-8">
+                  <div className="flex items-center justify-between mb-6">
+                    <div>
+                      <h3 className="text-2xl font-bold">{membershipCard.planDetails.name}</h3>
+                      <p className="text-white/80">ID: {membershipCard.memberId}</p>
+                    </div>
+                    <div className="w-16 h-16 bg-white/20 rounded-lg flex items-center justify-center">
+                      <QrCode className="w-8 h-8 text-white" />
+                    </div>
                   </div>
-                  <div className="w-16 h-16 bg-white/20 rounded-lg flex items-center justify-center">
-                    <QrCode className="w-8 h-8 text-white" />
+                  
+                  <div className="space-y-3 mb-6">
+                    <div className="flex justify-between">
+                      <span className="text-white/80">Member:</span>
+                      <span className="font-medium">{membershipCard.name}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-white/80">Valid Until:</span>
+                      <span>Dec 2025</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-white/80">Status:</span>
+                      <Badge className="bg-green-500 text-white">
+                        {membershipCard.membershipStatus}
+                      </Badge>
+                    </div>
                   </div>
-                </div>
-                
-                <div className="space-y-3 mb-6">
-                  <div className="flex justify-between">
-                    <span className="text-white/80">Member:</span>
-                    <span className="font-medium">{mockData.user.name}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-white/80">Valid Until:</span>
-                    <span>Dec 2025</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-white/80">Status:</span>
-                    <Badge className="bg-green-500 text-white">Active</Badge>
-                  </div>
-                </div>
-                
-                <Button
-                  onClick={handleDownloadCard}
-                  className="w-full bg-white/20 hover:bg-white/30 text-white border-white/30"
-                >
-                  <Download className="w-4 h-4 mr-2" />
-                  Download Digital Card
-                </Button>
-                
-                <div className="mt-6 pt-6 border-t border-white/20 text-center">
-                  <img 
-                    src={mockData.qrCodes.memberCard} 
-                    alt="Member QR Code" 
-                    className="w-24 h-24 mx-auto bg-white rounded-lg p-2"
-                  />
-                  <p className="text-xs text-white/80 mt-2">Scan for quick access</p>
-                </div>
-              </CardContent>
-            </Card>
+                  
+                  <Button
+                    onClick={handleDownloadCard}
+                    className="w-full bg-white/20 hover:bg-white/30 text-white border-white/30"
+                  >
+                    <Download className="w-4 h-4 mr-2" />
+                    Download Digital Card
+                  </Button>
+                  
+                  {membershipCard.qrCode && (
+                    <div className="mt-6 pt-6 border-t border-white/20 text-center">
+                      <img 
+                        src={membershipCard.qrCode} 
+                        alt="Member QR Code" 
+                        className="w-24 h-24 mx-auto bg-white rounded-lg p-2"
+                      />
+                      <p className="text-xs text-white/80 mt-2">Scan for quick access</p>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Membership Plans */}
         <div className="mb-16">
-          <h2 className="text-3xl font-bold text-gray-900 mb-8 text-center">Upgrade or Renew</h2>
+          <h2 className="text-3xl font-bold text-gray-900 mb-8 text-center">
+            {isAuthenticated ? 'Upgrade or Renew' : 'Choose Your Plan'}
+          </h2>
           <div className="grid md:grid-cols-3 gap-8">
-            {mockData.membership.plans.map((plan) => (
+            {membershipPlans.map((plan) => (
               <Card 
                 key={plan.id} 
                 className={`relative overflow-hidden transition-all duration-300 hover:shadow-xl ${
@@ -136,8 +243,9 @@ const MembershipPage = () => {
                         ? 'bg-red-500 hover:bg-red-600 text-white'
                         : 'bg-gray-200 hover:bg-gray-300 text-gray-900'
                     }`}
+                    disabled={isAuthenticated && user?.membershipType === plan.id}
                   >
-                    {plan.id === 'premium' ? 'Current Plan' : 'Select Plan'}
+                    {isAuthenticated && user?.membershipType === plan.id ? 'Current Plan' : 'Select Plan'}
                   </Button>
                 </CardContent>
               </Card>
@@ -146,29 +254,31 @@ const MembershipPage = () => {
         </div>
 
         {/* Benefits Section */}
-        <div className="text-center bg-white rounded-xl p-12 shadow-lg">
-          <h2 className="text-3xl font-bold text-gray-900 mb-6">
-            Why Join Athletics Northern Territory?
-          </h2>
-          <div className="grid md:grid-cols-4 gap-8">
-            <div className="text-center">
-              <div className="text-4xl font-bold text-red-500 mb-2">{mockData.stats.totalMembers}</div>
-              <p className="text-gray-600">Active Members</p>
-            </div>
-            <div className="text-center">
-              <div className="text-4xl font-bold text-red-500 mb-2">{mockData.stats.completedEvents}</div>
-              <p className="text-gray-600">Events Completed</p>
-            </div>
-            <div className="text-center">
-              <div className="text-4xl font-bold text-red-500 mb-2">{mockData.stats.trainingHours.toLocaleString()}</div>
-              <p className="text-gray-600">Training Hours</p>
-            </div>
-            <div className="text-center">
-              <div className="text-4xl font-bold text-red-500 mb-2">{mockData.stats.activeEvents}</div>
-              <p className="text-gray-600">Active Events</p>
+        {membershipStats && (
+          <div className="text-center bg-white rounded-xl p-12 shadow-lg">
+            <h2 className="text-3xl font-bold text-gray-900 mb-6">
+              Why Join Athletics Northern Territory?
+            </h2>
+            <div className="grid md:grid-cols-4 gap-8">
+              <div className="text-center">
+                <div className="text-4xl font-bold text-red-500 mb-2">{membershipStats.totalMembers}</div>
+                <p className="text-gray-600">Active Members</p>
+              </div>
+              <div className="text-center">
+                <div className="text-4xl font-bold text-red-500 mb-2">{membershipStats.completedEvents}</div>
+                <p className="text-gray-600">Events Completed</p>
+              </div>
+              <div className="text-center">
+                <div className="text-4xl font-bold text-red-500 mb-2">{membershipStats.trainingHours.toLocaleString()}</div>
+                <p className="text-gray-600">Training Hours</p>
+              </div>
+              <div className="text-center">
+                <div className="text-4xl font-bold text-red-500 mb-2">{membershipStats.activeEvents}</div>
+                <p className="text-gray-600">Active Events</p>
+              </div>
             </div>
           </div>
-        </div>
+        )}
       </div>
     </div>
   );
