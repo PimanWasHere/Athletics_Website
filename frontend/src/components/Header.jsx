@@ -21,7 +21,9 @@ const Header = () => {
       <div className="relative h-80 bg-gradient-to-r from-red-600 via-red-500 to-orange-500 overflow-hidden">
         {/* Track Lines Overlay */}
         <div className="absolute inset-0 opacity-30">
-          <div className="absolute inset-0 bg-[url('data:image/svg+xml,<svg width="100" height="100" xmlns="http://www.w3.org/2000/svg"><defs><pattern id="track" x="0" y="0" width="100" height="20" patternUnits="userSpaceOnUse"><rect width="100" height="2" fill="white" opacity="0.3"/></pattern></defs><rect width="100%" height="100%" fill="url(%23track)"/></svg>')] bg-repeat"></div>
+          <div className="absolute inset-0" style={{
+            backgroundImage: 'repeating-linear-gradient(90deg, transparent, transparent 98px, rgba(255,255,255,0.3) 98px, rgba(255,255,255,0.3) 100px)'
+          }}></div>
         </div>
         
         {/* Logo and Title */}
